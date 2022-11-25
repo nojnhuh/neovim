@@ -3623,4 +3623,103 @@ describe('LSP', function()
       eq(expected, result)
     end)
   end)
+
+  describe('vim.lsp._watchfiles', function()
+    it('should send workspace/didChangeWatchedFiles when watched files change', function()
+      local expected_handlers = {
+        {NIL, {}, {method="shutdown", client_id=1}};
+        {NIL, {}, {method="reregister", client_id=1}};
+        {NIL, {}, {method="register", client_id=1}};
+        {NIL, nil, {method="get_root", bufnr=1, client_id=1}};
+      }
+      local client
+      local root_dir
+      test_rpc_server {
+        test_name = "basic_watchfiles";
+        on_init = function(_client, _)
+          client = _client
+          client.request('get_root')
+        end;
+        on_exit = function(code, signal)
+          eq(0, code, "exit code")
+          eq(0, signal, "exit signal")
+        end;
+        on_handler = function(err, result, ctx)
+          if ctx.method == 'get_root' then
+            root_dir = result
+            result = nil -- don't make an assertion on this value
+          elseif ctx.method == 'register' then
+            exec_lua([[
+            local root_dir = ...
+            vim.lsp.handlers["client/registerCapability"](NIL, {
+              registrations = {
+                {
+                  id = "basic_watchfiles_0",
+                  method = "workspace/didChangeWatchedFiles",
+                  registerOptions = {
+                    watchers = {
+                      {
+                        globPattern = {
+                          baseUri = vim.uri_from_fname(root_dir),
+                          pattern = "**/*.watch",
+                        },
+                        kind = 7,
+                      },
+                    },
+                  },
+                },
+              },
+            }, {client_id=1})
+            ]], root_dir)
+            write_file(root_dir..'/test.nowatch', '')
+            os.remove(root_dir..'/test.nowatch')
+            write_file(root_dir..'/test.watch', '')
+            write_file(root_dir..'/test.watch', 'some change')
+            os.remove(root_dir..'/test.watch')
+          elseif ctx.method == 'reregister' then
+            exec_lua([[
+            local root_dir = ...
+            vim.lsp.handlers["client/registerCapability"](NIL, {
+              registrations = {
+                {
+                  id = "basic_watchfiles_1",
+                  method = "workspace/didChangeWatchedFiles",
+                  registerOptions = {
+                    watchers = {
+                      {
+                        globPattern = {
+                          baseUri = vim.uri_from_fname(root_dir),
+                          pattern = "**/*.newwatch",
+                        },
+                        kind = 7,
+                      },
+                    },
+                  },
+                },
+              },
+            }, {client_id=1})
+            ]], root_dir)
+            exec_lua[[
+            vim.lsp.handlers["client/unregisterCapability"](NIL, {
+              unregisterations = {
+                {
+                  id = "basic_watchfiles_0",
+                  method = "workspace/didChangeWatchedFiles",
+                },
+              },
+            }, {client_id=1})
+            ]]
+            write_file(root_dir..'/test.watch', '')
+            os.remove(root_dir..'/test.watch')
+            write_file(root_dir..'/test.newwatch', '')
+            write_file(root_dir..'/test.newwatch', 'some change')
+            os.remove(root_dir..'/test.newwatch')
+          elseif ctx.method == 'shutdown' then
+            client.stop()
+          end
+          eq(table.remove(expected_handlers), {err, result, ctx})
+        end;
+      }
+    end)
+  end)
 end)
