@@ -9,16 +9,16 @@ local uv = vim.loop
 ---@param pattern string The raw glob pattern
 ---@return table A list of Lua patterns. A match with any of them matches the input glob pattern.
 local function parse(pattern)
-  local patterns = {""}
+  local patterns = { '' }
 
-  local path_sep = "[/\\]"
-  local non_path_sep = "[^/\\]"
+  local path_sep = '[/\\]'
+  local non_path_sep = '[^/\\]'
 
   local function append(chunks)
     local new_patterns = {}
     for _, p in ipairs(patterns) do
       for _, chunk in ipairs(chunks) do
-        table.insert(new_patterns, p..chunk)
+        table.insert(new_patterns, p .. chunk)
       end
     end
     patterns = new_patterns
@@ -26,104 +26,116 @@ local function parse(pattern)
 
   local function split(s, sep)
     local segments = {}
-    local segment = ""
+    local segment = ''
     local in_braces = false
     local in_brackets = false
     for i = 1, #s do
       local c = string.sub(s, i, i)
       if c == sep and not in_braces and not in_brackets then
         table.insert(segments, segment)
-        segment = ""
+        segment = ''
       else
-        if c == "{" then
+        if c == '{' then
           in_braces = true
-        elseif c == "}" then
+        elseif c == '}' then
           in_braces = false
-        elseif c == "[" then
+        elseif c == '[' then
           in_brackets = true
-        elseif c == "]" then
+        elseif c == ']' then
           in_brackets = false
         end
-        segment = segment..c
+        segment = segment .. c
       end
     end
-    if segment ~= "" then table.insert(segments, segment) end
+    if segment ~= '' then
+      table.insert(segments, segment)
+    end
     return segments
   end
 
   local function escape(c)
-    if c == "?" or c == "." or c == "(" or c == ")" or c == "%" or
-       c == "[" or c == "]" or c == "*" or c == "+" or c == "-" then
-      return "%"..c
+    if
+      c == '?'
+      or c == '.'
+      or c == '('
+      or c == ')'
+      or c == '%'
+      or c == '['
+      or c == ']'
+      or c == '*'
+      or c == '+'
+      or c == '-'
+    then
+      return '%' .. c
     end
     return c
   end
 
-  local segments = split(pattern, "/")
+  local segments = split(pattern, '/')
   for i, segment in ipairs(segments) do
     local last_seg = i == #segments
-    if segment == "**" then
+    if segment == '**' then
       local chunks = {
-        path_sep.."-",
-        ".-"..path_sep,
+        path_sep .. '-',
+        '.-' .. path_sep,
       }
       if last_seg then
-        chunks = { ".-" }
+        chunks = { '.-' }
       end
       append(chunks)
     else
       local in_braces = false
-      local brace_val = ""
+      local brace_val = ''
       local in_brackets = false
-      local bracket_val = ""
+      local bracket_val = ''
       for j = 1, #segment do
         local char = string.sub(segment, j, j)
-        if char ~= "}" and in_braces then
-          brace_val = brace_val..char
+        if char ~= '}' and in_braces then
+          brace_val = brace_val .. char
         else
-          if in_brackets and (char ~= "]" or bracket_val == "") then
+          if in_brackets and (char ~= ']' or bracket_val == '') then
             local res
-            if char == "-" then
+            if char == '-' then
               res = char
-            elseif bracket_val ~= "" and char == "!" then
-              res = "^"
-            elseif char == "**" then
-              res = ""
+            elseif bracket_val ~= '' and char == '!' then
+              res = '^'
+            elseif char == '**' then
+              res = ''
             else
               res = escape(char)
             end
-            bracket_val = bracket_val..res
+            bracket_val = bracket_val .. res
           else
-            if char == "{" then
+            if char == '{' then
               in_braces = true
-            elseif char == "[" then
+            elseif char == '[' then
               in_brackets = true
-            elseif char == "}" then
-              local choices = split(brace_val, ",")
+            elseif char == '}' then
+              local choices = split(brace_val, ',')
               local parsed_choices = {}
               for _, choice in ipairs(choices) do
                 table.insert(parsed_choices, parse(choice))
               end
               append(vim.tbl_flatten(parsed_choices))
               in_braces = false
-              brace_val = ""
-            elseif char == "]" then
-              append({"["..bracket_val.."]"})
+              brace_val = ''
+            elseif char == ']' then
+              append({ '[' .. bracket_val .. ']' })
               in_brackets = false
-              bracket_val = ""
-            elseif char == "?" then
-              append({non_path_sep})
-            elseif char == "*" then
-              append({non_path_sep.."-"})
+              bracket_val = ''
+            elseif char == '?' then
+              append({ non_path_sep })
+            elseif char == '*' then
+              append({ non_path_sep .. '-' })
             else
-              append({escape(char)})
+              append({ escape(char) })
             end
           end
         end
       end
 
-      if not last_seg and (segments[i+1] ~= "**" or i+1 < #segments) then
-        append({path_sep})
+      if not last_seg and (segments[i + 1] ~= '**' or i + 1 < #segments) then
+        append({ path_sep })
       end
     end
   end
@@ -139,14 +151,16 @@ end
 ---@param s string The string to match against pattern.
 ---@return bool Whether or not pattern matches s.
 local function match(pattern, s)
-  if type(pattern) == "string" then
+  if type(pattern) == 'string' then
     pattern = parse(pattern)
   end
   -- Since Lua's built-in string pattern matching does not have an alternate
   -- operator like '|', `parse` will construct one pattern for each possible
   -- alternative. Any pattern that matches thus matches the glob.
   for _, p in ipairs(pattern) do
-    if s:match("^"..p.."$") then return true end
+    if s:match('^' .. p .. '$') then
+      return true
+    end
   end
   return false
 end
@@ -158,7 +172,7 @@ end
 ---@return string The joined path.
 local function filepath_join(...)
   local dir = ...
-  return table.concat({...}, dir:match('^([a-zA-Z]:)(.*)') and "\\" or "/")
+  return table.concat({ ... }, dir:match('^([a-zA-Z]:)(.*)') and '\\' or '/')
 end
 
 -- Cache of libuv handles per directory, per LSP client, per registration ID.
@@ -182,7 +196,7 @@ local function get_callback(dir, client_id, reg_id)
     local type = events.change and protocol.FileChangeType.Changed or 0
     if events.rename then
       local _, err, errname = uv.fs_stat(path)
-      if errname == "ENOENT" then
+      if errname == 'ENOENT' then
         type = protocol.FileChangeType.Deleted
       else
         assert(not err, err)
@@ -193,12 +207,14 @@ local function get_callback(dir, client_id, reg_id)
     local matches_filter = false
     local filters = watched_dirs[dir].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
-      if match(filter.pattern, path) and math.floor(filter.kind / (2^(type-1))) % 2 == 1 then
+      if match(filter.pattern, path) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
         matches_filter = true
         break
       end
     end
-    if not matches_filter then return end
+    if not matches_filter then
+      return
+    end
 
     local change = {
       uri = vim.uri_from_fname(path),
@@ -215,7 +231,7 @@ local function get_callback(dir, client_id, reg_id)
       local t = uv.new_timer()
       t:start(100, 0, function()
         t:close()
-        vim.lsp.get_client_by_id(client_id).notify("workspace/didChangeWatchedFiles", {
+        vim.lsp.get_client_by_id(client_id).notify('workspace/didChangeWatchedFiles', {
           changes = change_queue[client_id],
         })
         change_queue[client_id] = nil
@@ -230,10 +246,10 @@ end
 -- Never create watchers for directories matching these patterns. Similar
 -- to vscode's files.watcherExclude setting.
 local excludes = {
-  parse("**/.git/objects/**"),
-  parse("**/.git/subtree-cache/**"),
-  parse("**/node_modules/*/**"),
-  parse("**/.hg/store/**"),
+  parse('**/.git/objects/**'),
+  parse('**/.git/subtree-cache/**'),
+  parse('**/node_modules/*/**'),
+  parse('**/.hg/store/**'),
 }
 
 ---@private
@@ -246,7 +262,7 @@ local excludes = {
 ---@param reg_id string The ID used to register the request.
 local function fsevent_ensure_recursive(dir, pattern, kind, client_id, reg_id)
   -- Recursive flag for libuv watcher not implemented on linux
-  local recursive_watch = vim.fn.has("mac") == 1 or vim.fn.has("win32") == 1
+  local recursive_watch = vim.fn.has('mac') == 1 or vim.fn.has('win32') == 1
 
   if not watched_dirs[dir] then
     local fsevent, fserr = uv.new_fs_event()
@@ -264,21 +280,33 @@ local function fsevent_ensure_recursive(dir, pattern, kind, client_id, reg_id)
   end
 
   watched_dirs[dir].callbacks[client_id] = watched_dirs[dir].callbacks[client_id] or {}
-  watched_dirs[dir].callbacks[client_id][reg_id] = watched_dirs[dir].callbacks[client_id][reg_id] or {}
-  watched_dirs[dir].callbacks[client_id][reg_id].callback = watched_dirs[dir].callbacks[client_id][reg_id].callback or get_callback(dir, client_id, reg_id)
-  watched_dirs[dir].callbacks[client_id][reg_id].filters = watched_dirs[dir].callbacks[client_id][reg_id].filters or {}
-  table.insert(watched_dirs[dir].callbacks[client_id][reg_id].filters, {pattern=pattern, kind=kind})
+  watched_dirs[dir].callbacks[client_id][reg_id] = watched_dirs[dir].callbacks[client_id][reg_id]
+    or {}
+  watched_dirs[dir].callbacks[client_id][reg_id].callback = watched_dirs[dir].callbacks[client_id][reg_id].callback
+    or get_callback(dir, client_id, reg_id)
+  watched_dirs[dir].callbacks[client_id][reg_id].filters = watched_dirs[dir].callbacks[client_id][reg_id].filters
+    or {}
+  table.insert(
+    watched_dirs[dir].callbacks[client_id][reg_id].filters,
+    { pattern = pattern, kind = kind }
+  )
 
-  if recursive_watch then return end
+  if recursive_watch then
+    return
+  end
 
   local scan, err = uv.fs_scandir(dir)
   assert(not err, err)
   while true do
     local ret = { uv.fs_scandir_next(scan) }
-    if #ret == 0 then break end
-    if #ret == 3 then assert(not ret[2], ret[2]) end -- error check
+    if #ret == 0 then
+      break
+    end
+    if #ret == 3 then
+      assert(not ret[2], ret[2])
+    end -- error check
     local name, type = ret[1], ret[2]
-    if type == "directory" then
+    if type == 'directory' then
       local subpath = filepath_join(dir, name)
       local include = true
       for _, exclude in ipairs(excludes) do
@@ -287,7 +315,9 @@ local function fsevent_ensure_recursive(dir, pattern, kind, client_id, reg_id)
           break
         end
       end
-      if not include then break end
+      if not include then
+        break
+      end
       fsevent_ensure_recursive(subpath, pattern, kind, client_id, reg_id)
     end
   end
@@ -301,7 +331,7 @@ function M.register(reg, ctx)
   local client = vim.lsp.get_client_by_id(ctx.client_id)
   for _, w in ipairs(reg.registerOptions.watchers) do
     local glob_patterns = {}
-    if type(w.globPattern) == "string" then
+    if type(w.globPattern) == 'string' then
       for _, folder in ipairs(client.workspace_folders) do
         table.insert(glob_patterns, { baseUri = folder.uri, pattern = w.globPattern })
       end
@@ -311,14 +341,15 @@ function M.register(reg, ctx)
     for _, glob_pattern in ipairs(glob_patterns) do
       local pattern = parse(glob_pattern.pattern)
       local base_dir = nil
-      if type(glob_pattern.baseUri) == "string" then
+      if type(glob_pattern.baseUri) == 'string' then
         base_dir = glob_pattern.baseUri
-      elseif type(glob_pattern.baseUri) == "table" then
+      elseif type(glob_pattern.baseUri) == 'table' then
         base_dir = glob_pattern.baseUri.uri
       end
       assert(base_dir, "couldn't identify root of watch")
       base_dir = vim.uri_to_fname(base_dir)
-      local kind = w.kind or protocol.WatchKind.Create + protocol.WatchKind.Change + protocol.WatchKind.Delete
+      local kind = w.kind
+        or protocol.WatchKind.Create + protocol.WatchKind.Change + protocol.WatchKind.Delete
 
       fsevent_ensure_recursive(base_dir, pattern, kind, ctx.client_id, reg.id)
     end

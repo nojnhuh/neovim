@@ -950,34 +950,34 @@ function tests.basic_watchfiles()
         changes = {
           {
             type = vim.lsp.protocol.FileChangeType.Created,
-            uri = vim.uri_from_fname(root_dir.."/test.watch"),
+            uri = vim.uri_from_fname(root_dir .. '/test.watch'),
           },
           {
             type = vim.lsp.protocol.FileChangeType.Changed,
-            uri = vim.uri_from_fname(root_dir.."/test.watch"),
+            uri = vim.uri_from_fname(root_dir .. '/test.watch'),
           },
           {
             type = vim.lsp.protocol.FileChangeType.Deleted,
-            uri = vim.uri_from_fname(root_dir.."/test.watch"),
+            uri = vim.uri_from_fname(root_dir .. '/test.watch'),
           },
-        }
+        },
       })
       notify('reregister')
       expect_notification('workspace/didChangeWatchedFiles', {
         changes = {
           {
             type = vim.lsp.protocol.FileChangeType.Created,
-            uri = vim.uri_from_fname(root_dir.."/test.newwatch"),
+            uri = vim.uri_from_fname(root_dir .. '/test.newwatch'),
           },
           {
             type = vim.lsp.protocol.FileChangeType.Changed,
-            uri = vim.uri_from_fname(root_dir.."/test.newwatch"),
+            uri = vim.uri_from_fname(root_dir .. '/test.newwatch'),
           },
           {
             type = vim.lsp.protocol.FileChangeType.Deleted,
-            uri = vim.uri_from_fname(root_dir.."/test.newwatch"),
+            uri = vim.uri_from_fname(root_dir .. '/test.newwatch'),
           },
-        }
+        },
       })
       notify('shutdown')
 

@@ -121,12 +121,12 @@ M['client/registerCapability'] = function(_, result, ctx)
   local client_id = ctx.client_id
   local client = vim.lsp.get_client_by_id(client_id)
   for _, reg in ipairs(result.registrations) do
-    if reg.method == "workspace/didChangeWatchedFiles" then
+    if reg.method == 'workspace/didChangeWatchedFiles' then
       require('vim.lsp._watchfiles').register(reg, ctx)
     else
       local warning_tpl = 'The language server %s triggers a registerCapability '
-      .. 'handler despite dynamicRegistration set to false. '
-      .. 'Report upstream, this warning is harmless'
+        .. 'handler despite dynamicRegistration set to false. '
+        .. 'Report upstream, this warning is harmless'
       local client_name = client and client.name or string.format('id=%d', client_id)
       local warning = string.format(warning_tpl, client_name)
       log.warn(warning)
@@ -138,7 +138,7 @@ end
 --see: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#client_unregisterCapability
 M['client/unregisterCapability'] = function(_, result, ctx)
   for _, unreg in ipairs(result.unregisterations) do
-    if unreg.method == "workspace/didChangeWatchedFiles" then
+    if unreg.method == 'workspace/didChangeWatchedFiles' then
       require('vim.lsp._watchfiles').unregister(unreg, ctx)
     end
   end
