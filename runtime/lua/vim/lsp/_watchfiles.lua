@@ -150,7 +150,7 @@ end
 ---@param pattern string|table The glob pattern (raw or parsed) to match.
 ---@param s string The string to match against pattern.
 ---@return bool Whether or not pattern matches s.
-local function match(pattern, s)
+function M._match(pattern, s)
   if type(pattern) == 'string' then
     pattern = parse(pattern)
   end
@@ -207,7 +207,7 @@ local function get_callback(dir, client_id, reg_id)
     local matches_filter = false
     local filters = watched_dirs[dir].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
-      if match(filter.pattern, path) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
+      if M._match(filter.pattern, path) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
         matches_filter = true
         break
       end
@@ -310,7 +310,7 @@ local function fsevent_ensure_recursive(dir, pattern, kind, client_id, reg_id)
       local subpath = filepath_join(dir, name)
       local include = true
       for _, exclude in ipairs(excludes) do
-        if match(exclude, subpath) then
+        if M._match(exclude, subpath) then
           include = false
           break
         end
