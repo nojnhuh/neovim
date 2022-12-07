@@ -97,9 +97,9 @@ local function parse(pattern)
             local res
             if char == '-' then
               res = char
-            elseif bracket_val ~= '' and char == '!' then
+            elseif bracket_val == '' and char == '!' then
               res = '^'
-            elseif char == '**' then
+            elseif char == '/' then
               res = ''
             else
               res = escape(char)
