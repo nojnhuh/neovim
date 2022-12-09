@@ -21,6 +21,7 @@ local is_ci = helpers.is_ci
 local meths = helpers.meths
 local is_os = helpers.is_os
 local skip = helpers.skip
+local lfs = require('lfs')
 
 -- Use these to get access to a coroutine so that I can run async tests and use
 -- yield.
@@ -52,6 +53,7 @@ local create_server_definition = [[
     opts = opts or {}
     local server = {}
     server.messages = {}
+    server.notifications = {}
 
     function server.cmd(dispatchers)
       local closing = false
@@ -79,6 +81,10 @@ local create_server_definition = [[
       end
 
       function srv.notify(method, params)
+        table.insert(server.notifications, {
+          method = method,
+          params = params,
+        })
       end
 
       function srv.is_closing()
@@ -3626,100 +3632,176 @@ describe('LSP', function()
 
   describe('vim.lsp._watchfiles', function()
     it('should send workspace/didChangeWatchedFiles when watched files change', function()
-      local expected_handlers = {
-        {NIL, {}, {method="shutdown", client_id=1}};
-        {NIL, {}, {method="reregister", client_id=1}};
-        {NIL, {}, {method="register", client_id=1}};
-        {NIL, nil, {method="get_root", bufnr=1, client_id=1}};
-      }
-      local client
-      local root_dir
-      test_rpc_server {
-        test_name = "basic_watchfiles";
-        on_init = function(_client, _)
-          client = _client
-          client.request('get_root')
-        end;
-        on_exit = function(code, signal)
-          eq(0, code, "exit code")
-          eq(0, signal, "exit signal")
-        end;
-        on_handler = function(err, result, ctx)
-          if ctx.method == 'get_root' then
-            root_dir = result
-            result = nil -- don't make an assertion on this value
-          elseif ctx.method == 'register' then
-            exec_lua([[
-            local root_dir = ...
-            vim.lsp.handlers["client/registerCapability"](NIL, {
-              registrations = {
+      local root_dir = helpers.tmpname()
+      os.remove(root_dir)
+      lfs.mkdir(root_dir)
+
+      exec_lua(create_server_definition)
+      local result = exec_lua([[
+      local root_dir = ...
+
+      local server = _create_server()
+      local client_id = vim.lsp.start({
+        name = 'watchfiles-test',
+        cmd = server.cmd,
+        root_dir = root_dir,
+      })
+
+      vim.lsp.handlers['client/registerCapability'](nil, {
+        registrations = {
+          {
+            id = 'watchfiles-test-0',
+            method = 'workspace/didChangeWatchedFiles',
+            registerOptions = {
+              watchers = {
                 {
-                  id = "basic_watchfiles_0",
-                  method = "workspace/didChangeWatchedFiles",
-                  registerOptions = {
-                    watchers = {
-                      {
-                        globPattern = {
-                          baseUri = vim.uri_from_fname(root_dir),
-                          pattern = "**/*.watch",
-                        },
-                        kind = 7,
-                      },
-                    },
-                  },
+                  globPattern = '**/*.watch0',
+                  kind = 7,
                 },
               },
-            }, {client_id=1})
-            ]], root_dir)
-            write_file(root_dir..'/test.nowatch', '')
-            os.remove(root_dir..'/test.nowatch')
-            write_file(root_dir..'/test.watch', '')
-            write_file(root_dir..'/test.watch', 'some change')
-            os.remove(root_dir..'/test.watch')
-          elseif ctx.method == 'reregister' then
-            exec_lua([[
-            local root_dir = ...
-            vim.lsp.handlers["client/registerCapability"](NIL, {
-              registrations = {
+            },
+          },
+        },
+      }, { client_id = client_id })
+
+      local expected_notifications = 1 -- initialized
+      local function wait_for_notifications()
+        return vim.wait(1000, function() return #server.notifications == expected_notifications end)
+      end
+
+      wait_for_notifications()
+
+      local watched_path = root_dir .. '/file.watch0'
+      local watched, err = io.open(watched_path, 'w')
+      assert(not err, err)
+      watched:write('some content')
+      watched:flush()
+      watched:close()
+
+      local unwatched_path = root_dir .. '/file.watch1'
+      local unwatched, err = io.open(unwatched_path, 'w')
+      assert(not err, err)
+      unwatched:write('some content')
+      unwatched:flush()
+      unwatched:close()
+
+      expected_notifications = expected_notifications + 1
+      wait_for_notifications()
+
+      os.remove(watched_path)
+      os.remove(unwatched_path)
+
+      expected_notifications = expected_notifications + 1
+      wait_for_notifications()
+
+      vim.lsp.handlers['client/registerCapability'](nil, {
+        registrations = {
+          {
+            id = 'watchfiles-test-1',
+            method = 'workspace/didChangeWatchedFiles',
+            registerOptions = {
+              watchers = {
                 {
-                  id = "basic_watchfiles_1",
-                  method = "workspace/didChangeWatchedFiles",
-                  registerOptions = {
-                    watchers = {
-                      {
-                        globPattern = {
-                          baseUri = vim.uri_from_fname(root_dir),
-                          pattern = "**/*.newwatch",
-                        },
-                        kind = 7,
-                      },
-                    },
-                  },
+                  globPattern = '**/*.watch1',
+                  kind = 7,
                 },
               },
-            }, {client_id=1})
-            ]], root_dir)
-            exec_lua[[
-            vim.lsp.handlers["client/unregisterCapability"](NIL, {
-              unregisterations = {
-                {
-                  id = "basic_watchfiles_0",
-                  method = "workspace/didChangeWatchedFiles",
-                },
-              },
-            }, {client_id=1})
-            ]]
-            write_file(root_dir..'/test.watch', '')
-            os.remove(root_dir..'/test.watch')
-            write_file(root_dir..'/test.newwatch', '')
-            write_file(root_dir..'/test.newwatch', 'some change')
-            os.remove(root_dir..'/test.newwatch')
-          elseif ctx.method == 'shutdown' then
-            client.stop()
-          end
-          eq(table.remove(expected_handlers), {err, result, ctx})
-        end;
-      }
+            },
+          },
+        },
+      }, { client_id = client_id })
+
+      vim.lsp.handlers['client/unregisterCapability'](nil, {
+        unregisterations = {
+          {
+            id = 'watchfiles-test-0',
+            method = 'workspace/didChangeWatchedFiles',
+          },
+        },
+      }, { client_id = client_id })
+
+      watched_path, unwatched_path = unwatched_path, watched_path
+
+      watched, err = io.open(watched_path, 'w')
+      assert(not err, err)
+      watched:write('some content')
+      watched:flush()
+      watched:close()
+
+      unwatched, err = io.open(unwatched_path, 'w')
+      assert(not err, err)
+      unwatched:write('some content')
+      unwatched:flush()
+      unwatched:close()
+
+      expected_notifications = expected_notifications + 1
+      wait_for_notifications()
+
+      os.remove(watched_path)
+      os.remove(unwatched_path)
+
+      expected_notifications = expected_notifications + 1
+      wait_for_notifications()
+
+      return server.notifications
+      ]], root_dir)
+
+      local function watched_uri(fname)
+        return exec_lua([[
+        local root_dir, fname = ...
+        return vim.uri_from_fname(root_dir .. '/' .. fname)
+        ]], root_dir, fname)
+      end
+
+      eq('workspace/didChangeWatchedFiles', result[2].method)
+      eq({
+        changes = {
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Created]]),
+            uri = watched_uri('file.watch0'),
+          },
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Changed]]),
+            uri = watched_uri('file.watch0'),
+          },
+        },
+      }, result[2].params)
+
+      eq('workspace/didChangeWatchedFiles', result[3].method)
+      eq({
+        changes = {
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Deleted]]),
+            uri = watched_uri('file.watch0'),
+          },
+        },
+      }, result[3].params)
+
+      eq('workspace/didChangeWatchedFiles', result[4].method)
+      eq({
+        changes = {
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Created]]),
+            uri = watched_uri('file.watch1'),
+          },
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Changed]]),
+            uri = watched_uri('file.watch1'),
+          },
+        },
+      }, result[4].params)
+
+      eq('workspace/didChangeWatchedFiles', result[5].method)
+      eq({
+        changes = {
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Deleted]]),
+            uri = watched_uri('file.watch1'),
+          },
+        },
+      }, result[5].params)
+
+      eq(5, #result)
     end)
   end)
 end)
