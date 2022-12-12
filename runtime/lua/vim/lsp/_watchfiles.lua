@@ -195,9 +195,9 @@ local watch_each_file = vim.fn.has('bsd') == 1
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
 ---@return function The callback invoked on watched file events.
-local function get_callback(dir, client_id, reg_id)
+local function get_callback(watch_path, client_id, reg_id)
   return function(filename, events)
-    local path = filepath_join(dir, filename)
+    local path = filepath_join(watch_path, filename)
 
     local type = events.change and protocol.FileChangeType.Changed or 0
     if events.rename then
@@ -210,10 +210,10 @@ local function get_callback(dir, client_id, reg_id)
       end
     end
 
-    local matches_filter = watch_each_file
-    local filters = watched_dirs[path].callbacks[client_id][reg_id].filters
+    local matches_filter = false
+    local filters = watched_dirs[watch_path].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
-      if M._match(filter.pattern, path) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
+      if (watch_each_file or M._match(filter.pattern, path)) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
         matches_filter = true
         break
       end
@@ -267,7 +267,7 @@ local excludes = {
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
 local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
-  if watch_each_file and not M._match(pattern, path) then
+  if not watch_each_file or M._match(pattern, path) then
     if not watched_dirs[path] then
       local fsevent, fserr = uv.new_fs_event()
       assert(not fserr, fserr)
