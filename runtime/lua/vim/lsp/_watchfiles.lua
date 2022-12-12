@@ -182,6 +182,12 @@ local change_queue = {}
 local change_cache = {}
 local queue_timers = {}
 
+-- Recursive flag for libuv watcher not implemented on linux
+local recursive_watch = vim.fn.has('mac') == 1 or vim.fn.has('win32') == 1
+
+-- kqueue requires one watch for every file
+local watch_each_file = vim.fn.has('bsd') == 1
+
 ---@private
 --- Creates callbacks invoked on watched file events.
 ---
@@ -204,8 +210,8 @@ local function get_callback(dir, client_id, reg_id)
       end
     end
 
-    local matches_filter = false
-    local filters = watched_dirs[dir].callbacks[client_id][reg_id].filters
+    local matches_filter = watch_each_file
+    local filters = watched_dirs[path].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
       if M._match(filter.pattern, path) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
         matches_filter = true
@@ -255,47 +261,49 @@ local excludes = {
 ---@private
 --- Creates libuv fs_events handles.
 ---
----@param dir string Absolute path to the directory to watch.
+---@param path string Absolute path to watch.
 ---@param pattern string|table The LSP glob pattern (raw or parsed) to match against.
 ---@param kind number The LSP WatchKind value.
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
-local function fsevent_ensure_recursive(dir, pattern, kind, client_id, reg_id)
-  -- Recursive flag for libuv watcher not implemented on linux
-  local recursive_watch = vim.fn.has('mac') == 1 or vim.fn.has('win32') == 1
+local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
+  if watch_each_file and not M._match(pattern, path) then
+    if not watched_dirs[path] then
+      local fsevent, fserr = uv.new_fs_event()
+      assert(not fserr, fserr)
+      watched_dirs[path] = {
+        fsevent = fsevent,
+        callbacks = {},
+      }
+      fsevent:start(path, { recursive = recursive_watch }, function(err, filename, events)
+        assert(not err, err)
+        for _, reg in pairs(watched_dirs[path].callbacks[client_id]) do
+          reg.callback(filename, events)
+        end
+      end)
+    end
 
-  if not watched_dirs[dir] then
-    local fsevent, fserr = uv.new_fs_event()
-    assert(not fserr, fserr)
-    watched_dirs[dir] = {
-      fsevent = fsevent,
-      callbacks = {},
-    }
-    fsevent:start(dir, { recursive = recursive_watch }, function(err, filename, events)
-      assert(not err, err)
-      for _, reg in pairs(watched_dirs[dir].callbacks[client_id]) do
-        reg.callback(filename, events)
-      end
-    end)
-  end
-
-  watched_dirs[dir].callbacks[client_id] = watched_dirs[dir].callbacks[client_id] or {}
-  watched_dirs[dir].callbacks[client_id][reg_id] = watched_dirs[dir].callbacks[client_id][reg_id]
+    watched_dirs[path].callbacks[client_id] = watched_dirs[path].callbacks[client_id] or {}
+    watched_dirs[path].callbacks[client_id][reg_id] = watched_dirs[path].callbacks[client_id][reg_id]
     or {}
-  watched_dirs[dir].callbacks[client_id][reg_id].callback = watched_dirs[dir].callbacks[client_id][reg_id].callback
-    or get_callback(dir, client_id, reg_id)
-  watched_dirs[dir].callbacks[client_id][reg_id].filters = watched_dirs[dir].callbacks[client_id][reg_id].filters
+    watched_dirs[path].callbacks[client_id][reg_id].callback = watched_dirs[path].callbacks[client_id][reg_id].callback
+    or get_callback(path, client_id, reg_id)
+    watched_dirs[path].callbacks[client_id][reg_id].filters = watched_dirs[path].callbacks[client_id][reg_id].filters
     or {}
-  table.insert(
-    watched_dirs[dir].callbacks[client_id][reg_id].filters,
+    table.insert(
+    watched_dirs[path].callbacks[client_id][reg_id].filters,
     { pattern = pattern, kind = kind }
-  )
+    )
+  end
 
   if recursive_watch then
     return
   end
 
-  local scan, err = uv.fs_scandir(dir)
+  local scan, err, errname = uv.fs_scandir(path)
+  if errname == "ENOTDIR" then
+    return
+  end
   assert(not err, err)
   while true do
     local ret = { uv.fs_scandir_next(scan) }
@@ -306,8 +314,8 @@ local function fsevent_ensure_recursive(dir, pattern, kind, client_id, reg_id)
       assert(not ret[2], ret[2])
     end -- error check
     local name, type = ret[1], ret[2]
-    if type == 'directory' then
-      local subpath = filepath_join(dir, name)
+    if watch_each_file or type == 'directory' then
+      local subpath = filepath_join(path, name)
       local include = true
       for _, exclude in ipairs(excludes) do
         if M._match(exclude, subpath) then
