@@ -176,7 +176,7 @@ local function filepath_join(...)
 end
 
 -- Cache of libuv handles per directory, per LSP client, per registration ID.
-local watched_dirs = {}
+local watched_paths = {}
 
 local change_queue = {}
 local change_cache = {}
@@ -211,7 +211,7 @@ local function get_callback(watch_path, client_id, reg_id)
     end
 
     local matches_filter = false
-    local filters = watched_dirs[watch_path].callbacks[client_id][reg_id].filters
+    local filters = watched_paths[watch_path].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
       if (watch_each_file or M._match(filter.pattern, path)) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
         matches_filter = true
@@ -268,30 +268,30 @@ local excludes = {
 ---@param reg_id string The ID used to register the request.
 local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
   if not watch_each_file or M._match(pattern, path) then
-    if not watched_dirs[path] then
+    if not watched_paths[path] then
       local fsevent, fserr = uv.new_fs_event()
       assert(not fserr, fserr)
-      watched_dirs[path] = {
+      watched_paths[path] = {
         fsevent = fsevent,
         callbacks = {},
       }
       fsevent:start(path, { recursive = recursive_watch }, function(err, filename, events)
         assert(not err, err)
-        for _, reg in pairs(watched_dirs[path].callbacks[client_id]) do
+        for _, reg in pairs(watched_paths[path].callbacks[client_id]) do
           reg.callback(filename, events)
         end
       end)
     end
 
-    watched_dirs[path].callbacks[client_id] = watched_dirs[path].callbacks[client_id] or {}
-    watched_dirs[path].callbacks[client_id][reg_id] = watched_dirs[path].callbacks[client_id][reg_id]
+    watched_paths[path].callbacks[client_id] = watched_paths[path].callbacks[client_id] or {}
+    watched_paths[path].callbacks[client_id][reg_id] = watched_paths[path].callbacks[client_id][reg_id]
     or {}
-    watched_dirs[path].callbacks[client_id][reg_id].callback = watched_dirs[path].callbacks[client_id][reg_id].callback
+    watched_paths[path].callbacks[client_id][reg_id].callback = watched_paths[path].callbacks[client_id][reg_id].callback
     or get_callback(path, client_id, reg_id)
-    watched_dirs[path].callbacks[client_id][reg_id].filters = watched_dirs[path].callbacks[client_id][reg_id].filters
+    watched_paths[path].callbacks[client_id][reg_id].filters = watched_paths[path].callbacks[client_id][reg_id].filters
     or {}
     table.insert(
-    watched_dirs[path].callbacks[client_id][reg_id].filters,
+    watched_paths[path].callbacks[client_id][reg_id].filters,
     { pattern = pattern, kind = kind }
     )
   end
@@ -369,14 +369,14 @@ end
 ---@param unreg table LSP Unregistration object.
 ---@param ctx table Context from the |lsp-handler|.
 function M.unregister(unreg, ctx)
-  for dir, w in pairs(watched_dirs) do
+  for path, w in pairs(watched_paths) do
     w.callbacks[ctx.client_id][unreg.id] = nil
     if not next(w.callbacks[ctx.client_id]) then
       w.callbacks[ctx.client_id] = nil
       if not next(w.callbacks) then
         local _, err = w.fsevent:stop()
         assert(not err, err)
-        watched_dirs[dir] = nil
+        watched_paths[path] = nil
       end
     end
   end
