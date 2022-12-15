@@ -245,6 +245,12 @@ local excludes = {
   parse('**/.hg/store/**'),
 }
 
+---@private
+--- Initializes a libuv fs_event, persistent when underlying inodes change.
+---
+---@param path string The path to watch.
+---@param client_id umber The LSP client's ID.
+---@return uv.fs_event The started libuv fs_event handle.
 local function start_watch(path, client_id)
   local fsevent, fserr = uv.new_fs_event()
   assert(not fserr, fserr)
