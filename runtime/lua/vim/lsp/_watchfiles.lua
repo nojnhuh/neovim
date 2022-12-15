@@ -191,25 +191,12 @@ local watch_each_file = vim.fn.has('bsd') == 1
 ---@private
 --- Creates callbacks invoked on watched file events.
 ---
----@param dir string Absolute path to the watched directory.
+---@param watch_path string Absolute path being watched.
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
 ---@return function The callback invoked on watched file events.
 local function get_callback(watch_path, client_id, reg_id)
-  return function(filename, events)
-    local path = filepath_join(watch_path, filename)
-
-    local type = events.change and protocol.FileChangeType.Changed or 0
-    if events.rename then
-      local _, err, errname = uv.fs_stat(path)
-      if errname == 'ENOENT' then
-        type = protocol.FileChangeType.Deleted
-      else
-        assert(not err, err)
-        type = protocol.FileChangeType.Created
-      end
-    end
-
+  return function(path, type)
     local matches_filter = false
     local filters = watched_paths[watch_path].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
@@ -258,6 +245,48 @@ local excludes = {
   parse('**/.hg/store/**'),
 }
 
+local function start_watch(path, client_id)
+  local fsevent, fserr = uv.new_fs_event()
+  assert(not fserr, fserr)
+  fsevent:start(path, { recursive = recursive_watch }, function(err, filename, events)
+    assert(not err, err)
+
+    local fullpath = filepath_join(path, filename)
+
+    local change_type = events.change and protocol.FileChangeType.Changed or 0
+    local stat
+    if events.rename then
+      stat, err, errname = uv.fs_stat(fullpath)
+      if errname == 'ENOENT' then
+        change_type = protocol.FileChangeType.Deleted
+      else
+        assert(not err, err)
+        change_type = protocol.FileChangeType.Created
+      end
+    end
+
+    for _, reg in pairs(watched_paths[path].callbacks[client_id]) do
+      reg.callback(fullpath, change_type)
+    end
+
+    if change_type == protocol.FileChangeType.Deleted then
+      local _, err = fsevent:stop()
+      assert(not err, err)
+      fsevent:close()
+      watched_paths[path] = nil
+      return
+    end
+    if stat and stat.ino ~= watched_paths[path].inode then
+      watched_paths[path].inode = stat.ino
+      local _, err = fsevent:stop()
+      assert(not err, err)
+      fsevent:close()
+      watched_paths[path].fsevent = start_watch(path, client_id)
+    end
+  end)
+  return fsevent
+end
+
 ---@private
 --- Creates libuv fs_events handles.
 ---
@@ -269,18 +298,13 @@ local excludes = {
 local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
   if not watch_each_file or M._match(pattern, path) then
     if not watched_paths[path] then
-      local fsevent, fserr = uv.new_fs_event()
+      local stat, fserr = uv.fs_stat(path)
       assert(not fserr, fserr)
       watched_paths[path] = {
-        fsevent = fsevent,
+        fsevent = start_watch(path, client_id),
+        inode = stat.ino,
         callbacks = {},
       }
-      fsevent:start(path, { recursive = recursive_watch }, function(err, filename, events)
-        assert(not err, err)
-        for _, reg in pairs(watched_paths[path].callbacks[client_id]) do
-          reg.callback(filename, events)
-        end
-      end)
     end
 
     watched_paths[path].callbacks[client_id] = watched_paths[path].callbacks[client_id] or {}
@@ -376,6 +400,7 @@ function M.unregister(unreg, ctx)
       if not next(w.callbacks) then
         local _, err = w.fsevent:stop()
         assert(not err, err)
+        w.fsevent:close()
         watched_paths[path] = nil
       end
     end
