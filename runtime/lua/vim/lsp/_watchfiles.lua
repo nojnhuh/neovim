@@ -254,9 +254,8 @@ local function start_watch(path, client_id)
     local fullpath = filepath_join(path, filename)
 
     local change_type = events.change and protocol.FileChangeType.Changed or 0
-    local stat
     if events.rename then
-      stat, err, errname = uv.fs_stat(fullpath)
+      local _, err, errname = uv.fs_stat(fullpath)
       if errname == 'ENOENT' then
         change_type = protocol.FileChangeType.Deleted
       else
@@ -269,14 +268,16 @@ local function start_watch(path, client_id)
       reg.callback(fullpath, change_type)
     end
 
-    if change_type == protocol.FileChangeType.Deleted then
+    local stat, err, errname = uv.fs_stat(path)
+    if errname == 'ENOENT' then
       local _, err = fsevent:stop()
       assert(not err, err)
       fsevent:close()
       watched_paths[path] = nil
       return
     end
-    if stat and stat.ino ~= watched_paths[path].inode then
+    assert(not err, err)
+    if stat.ino ~= watched_paths[path].inode then
       watched_paths[path].inode = stat.ino
       local _, err = fsevent:stop()
       assert(not err, err)
