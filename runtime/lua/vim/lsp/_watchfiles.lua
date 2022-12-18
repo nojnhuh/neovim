@@ -175,6 +175,8 @@ local function filepath_join(...)
   return table.concat({ ... }, dir:match('^([a-zA-Z]:)(.*)') and '\\' or '/')
 end
 
+local registrations = {}
+
 -- Cache of libuv handles per directory, per LSP client, per registration ID.
 local watched_paths = {}
 
@@ -249,7 +251,7 @@ local excludes = {
 --- Initializes a libuv fs_event, persistent when underlying inodes change.
 ---
 ---@param path string The path to watch.
----@param client_id umber The LSP client's ID.
+---@param client_id number The LSP client's ID.
 ---@return uv.fs_event The started libuv fs_event handle.
 local function start_watch(path, client_id)
   local fsevent, fserr = uv.new_fs_event()
@@ -321,10 +323,20 @@ local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
     or get_callback(path, client_id, reg_id)
     watched_paths[path].callbacks[client_id][reg_id].filters = watched_paths[path].callbacks[client_id][reg_id].filters
     or {}
-    table.insert(
-    watched_paths[path].callbacks[client_id][reg_id].filters,
-    { pattern = pattern, kind = kind }
-    )
+    local filter = { pattern = pattern, kind = kind }
+    local filter_exists = false
+    for _, f in ipairs(watched_paths[path].callbacks[client_id][reg_id].filters) do
+      if vim.deep_equal(filter, f) then
+        filter_exists = true
+        break
+      end
+    end
+    if not filter_exists then
+      table.insert(
+        watched_paths[path].callbacks[client_id][reg_id].filters,
+        filter
+      )
+    end
   end
 
   if recursive_watch then
@@ -362,12 +374,23 @@ local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
   end
 end
 
+local function ensure_registrations()
+  for client_id, regs in pairs(registrations) do
+    for reg_id, watchers in pairs(regs) do
+      for _, watcher in ipairs(watchers) do
+        fsevent_ensure_recursive(watcher.base_dir, watcher.pattern, watcher.kind, client_id, reg_id)
+      end
+    end
+  end
+end
+
 --- Registers the workspace/didChangeWatchedFiles capability dynamically.
 ---
 ---@param reg table LSP Registration object.
 ---@param ctx table Context from the |lsp-handler|.
 function M.register(reg, ctx)
   local client = vim.lsp.get_client_by_id(ctx.client_id)
+  local watchers = {}
   for _, w in ipairs(reg.registerOptions.watchers) do
     local glob_patterns = {}
     if type(w.globPattern) == 'string' then
@@ -390,9 +413,16 @@ function M.register(reg, ctx)
       local kind = w.kind
         or protocol.WatchKind.Create + protocol.WatchKind.Change + protocol.WatchKind.Delete
 
-      fsevent_ensure_recursive(base_dir, pattern, kind, ctx.client_id, reg.id)
+      table.insert(watchers, {
+        base_dir = base_dir,
+        pattern = pattern,
+        kind = kind,
+      })
     end
   end
+  registrations[ctx.client_id] = registrations[ctx.client_id] or {}
+  registrations[ctx.client_id][reg.id] = watchers
+  ensure_registrations()
 end
 
 --- Unregisters the workspace/didChangeWatchedFiles capability dynamically.
@@ -400,6 +430,10 @@ end
 ---@param unreg table LSP Unregistration object.
 ---@param ctx table Context from the |lsp-handler|.
 function M.unregister(unreg, ctx)
+  registrations[ctx.client_id][unreg.id] = nil
+  if not next(registrations[ctx.client_id]) then
+    registrations[ctx.client_id] = nil
+  end
   for path, w in pairs(watched_paths) do
     w.callbacks[ctx.client_id][unreg.id] = nil
     if not next(w.callbacks[ctx.client_id]) then
