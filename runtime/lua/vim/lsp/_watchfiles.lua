@@ -202,7 +202,7 @@ local function get_callback(watch_path, client_id, reg_id)
     local matches_filter = false
     local filters = watched_paths[watch_path].callbacks[client_id][reg_id].filters
     for _, filter in ipairs(filters) do
-      if (watch_each_file or M._match(filter.pattern, path)) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
+      if M._match(filter.pattern, path) and math.floor(filter.kind / (2 ^ (type - 1))) % 2 == 1 then
         matches_filter = true
         break
       end
@@ -304,8 +304,8 @@ end
 ---@param kind number The LSP WatchKind value.
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
-local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
-  if not watch_each_file or M._match(pattern, path) then
+local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filetype)
+  if filetype == "directory" or not watch_each_file or M._match(pattern, path) then
     if not watched_paths[path] then
       local stat, fserr = uv.fs_stat(path)
       assert(not fserr, fserr)
@@ -369,7 +369,7 @@ local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id)
       if not include then
         break
       end
-      fsevent_ensure_recursive(subpath, pattern, kind, client_id, reg_id)
+      fsevent_ensure_recursive(subpath, pattern, kind, client_id, reg_id, type)
     end
   end
 end
@@ -378,7 +378,7 @@ local function ensure_registrations()
   for client_id, regs in pairs(registrations) do
     for reg_id, watchers in pairs(regs) do
       for _, watcher in ipairs(watchers) do
-        fsevent_ensure_recursive(watcher.base_dir, watcher.pattern, watcher.kind, client_id, reg_id)
+        fsevent_ensure_recursive(watcher.base_dir, watcher.pattern, watcher.kind, client_id, reg_id, "directory")
       end
     end
   end
