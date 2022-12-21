@@ -368,7 +368,7 @@ function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filety
   end
 
   local scan, err, errname = uv.fs_scandir(path)
-  if errname == "ENOTDIR" then
+  if errname == "ENOTDIR" or errname == "ENOENT" then
     return
   end
   assert(not err, err)
