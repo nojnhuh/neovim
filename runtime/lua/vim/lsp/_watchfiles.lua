@@ -165,6 +165,8 @@ function M._match(pattern, s)
   return false
 end
 
+local path_sep
+
 ---@private
 --- Joins filepath elements by platform-specific separator.
 ---
@@ -172,7 +174,7 @@ end
 ---@return string The joined path.
 local function filepath_join(...)
   local dir = ...
-  return table.concat({ ... }, dir:match('^([a-zA-Z]:)(.*)') and '\\' or '/')
+  return table.concat({ ... }, path_sep)
 end
 
 local registrations = {}
@@ -247,13 +249,14 @@ local excludes = {
   parse('**/.hg/store/**'),
 }
 
+local fsevent_ensure_recursive
+
 ---@private
 --- Initializes a libuv fs_event, persistent when underlying inodes change.
 ---
 ---@param path string The path to watch.
----@param client_id number The LSP client's ID.
 ---@return uv.fs_event The started libuv fs_event handle.
-local function start_watch(path, client_id)
+local function start_watch(path)
   local fsevent, fserr = uv.new_fs_event()
   assert(not fserr, fserr)
   fsevent:start(path, { recursive = recursive_watch }, function(err, filename, events)
@@ -272,8 +275,10 @@ local function start_watch(path, client_id)
       end
     end
 
-    for _, reg in pairs(watched_paths[path].callbacks[client_id]) do
-      reg.callback(fullpath, change_type)
+    for _, regs in pairs(watched_paths[path].callbacks) do
+      for _, reg in pairs(regs) do
+        reg.callback(fullpath, change_type)
+      end
     end
 
     local stat, err, errname = uv.fs_stat(path)
@@ -292,6 +297,18 @@ local function start_watch(path, client_id)
       fsevent:close()
       watched_paths[path].fsevent = start_watch(path, client_id)
     end
+
+    if stat.type == "directory" then
+      for client_id, regs in pairs(registrations) do
+        for reg_id, watchers in pairs(regs) do
+          for _, watcher in ipairs(watchers) do
+            if vim.startswith(path .. path_sep, watcher.base_dir .. path_sep) then
+              fsevent_ensure_recursive(path, watcher.pattern, watcher.kind, client_id, reg_id, stat.type)
+            end
+          end
+        end
+      end
+    end
   end)
   return fsevent
 end
@@ -304,9 +321,12 @@ end
 ---@param kind number The LSP WatchKind value.
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
-local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filetype)
+function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filetype)
   if filetype == "directory" or not watch_each_file or M._match(pattern, path) then
+    local new_path = false
     if not watched_paths[path] then
+      new_path = true
+
       local stat, fserr = uv.fs_stat(path)
       assert(not fserr, fserr)
       watched_paths[path] = {
@@ -336,6 +356,10 @@ local function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, 
         watched_paths[path].callbacks[client_id][reg_id].filters,
         filter
       )
+    end
+
+    if new_path then
+      watched_paths[path].callbacks[client_id][reg_id].callback(path, protocol.FileChangeType.Created)
     end
   end
 
@@ -410,6 +434,7 @@ function M.register(reg, ctx)
       end
       assert(base_dir, "couldn't identify root of watch")
       base_dir = vim.uri_to_fname(base_dir)
+      path_sep = path_sep or base_dir:match('^([a-zA-Z]:)(.*)') and '\\' or '/'
       local kind = w.kind
         or protocol.WatchKind.Create + protocol.WatchKind.Change + protocol.WatchKind.Delete
 

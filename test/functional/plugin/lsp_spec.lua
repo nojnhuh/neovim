@@ -3647,15 +3647,12 @@ describe('LSP', function()
         root_dir = root_dir,
       })
 
-      local watched_path = root_dir .. '/file.watch0'
-      local watched, err = io.open(watched_path, 'w')
-      assert(not err, err)
-      watched:close()
+      local expected_notifications = 1 -- initialized
+      local function wait_for_notifications()
+        assert(vim.wait(1000, function() return #server.notifications == expected_notifications end), 'notifications: ' .. vim.inspect(server.notifications))
+      end
 
-      local unwatched_path = root_dir .. '/file.watch1'
-      local unwatched, err = io.open(unwatched_path, 'w')
-      assert(not err, err)
-      unwatched:close()
+      wait_for_notifications()
 
       vim.lsp.handlers['client/registerCapability'](nil, {
         registrations = {
@@ -3674,14 +3671,21 @@ describe('LSP', function()
         },
       }, { client_id = client_id })
 
-      local expected_notifications = 1 -- initialized
-      local function wait_for_notifications()
-        assert(vim.wait(1000, function() return #server.notifications == expected_notifications end), 'notifications: ' .. vim.inspect(server.notifications))
-      end
+      vim.wait(0)
 
+      local watched_path = root_dir .. '/file.watch0'
+      local watched, err = io.open(watched_path, 'w')
+      assert(not err, err)
+      watched:close()
+
+      local unwatched_path = root_dir .. '/file.watch1'
+      local unwatched, err = io.open(unwatched_path, 'w')
+      assert(not err, err)
+      unwatched:close()
+
+      expected_notifications = expected_notifications + 1
       wait_for_notifications()
 
-      vim.wait(0)
       os.remove(watched_path)
       os.remove(unwatched_path)
 
@@ -3702,11 +3706,20 @@ describe('LSP', function()
       eq({
         changes = {
           {
-            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Deleted]]),
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Created]]),
             uri = watched_uri('file.watch0'),
           },
         },
       }, result[2].params)
+      eq('workspace/didChangeWatchedFiles', result[3].method)
+      eq({
+        changes = {
+          {
+            type = exec_lua([[return vim.lsp.protocol.FileChangeType.Deleted]]),
+            uri = watched_uri('file.watch0'),
+          },
+        },
+      }, result[3].params)
     end)
   end)
 end)
