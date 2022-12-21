@@ -512,6 +512,8 @@ describe('lua stdlib', function()
     eq(NIL, exec_lua("return vim.tbl_get({ unindexable = function () end }, 'unindexable', 'missing_key')"))
     eq(NIL, exec_lua("return vim.tbl_get({}, 'missing_key')"))
     eq(NIL, exec_lua("return vim.tbl_get({})"))
+    eq(1, exec_lua("return select('#', vim.tbl_get({}))"))
+    eq(1, exec_lua("return select('#', vim.tbl_get({ nested = {} }, 'nested', 'missing_key'))"))
   end)
 
   it('vim.tbl_extend', function()
@@ -2186,6 +2188,22 @@ describe('lua stdlib', function()
       end)
     end)
   end) -- vim.opt
+
+  describe('opt_local', function()
+    it('should be able to append to an array list type option', function()
+      eq({ "foo,bar,baz,qux" }, exec_lua [[
+        local result = {}
+
+        vim.opt.tags = "foo,bar"
+        vim.opt_local.tags:append("baz")
+        vim.opt_local.tags:append("qux")
+
+        table.insert(result, vim.bo.tags)
+
+        return result
+      ]])
+    end)
+  end)
 
   it('vim.cmd', function()
     exec_lua [[

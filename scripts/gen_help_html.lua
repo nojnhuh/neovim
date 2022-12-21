@@ -296,12 +296,11 @@ local function ignore_invalid(s)
   )
 end
 
-local function ignore_parse_error(s, fname)
-  local helpfile = vim.fs.basename(fname)
-  return (helpfile == 'pi_netrw.txt'
+local function ignore_parse_error(s)
+  return (
     -- Ignore parse errors for unclosed tag.
     -- This is common in vimdocs and is treated as plaintext by :help.
-    or s:find("^[`'|*]")
+    s:find("^[`'|*]")
   )
 end
 
@@ -370,7 +369,7 @@ local function visit_validate(root, level, lang_tree, opt, stats)
   end
 
   if node_name == 'ERROR' then
-    if ignore_parse_error(text, opt.fname) then
+    if ignore_parse_error(text) then
       return
     end
     -- Store the raw text to give context to the error report.
@@ -582,7 +581,7 @@ local function visit_node(root, level, lang_tree, headings, opt, stats)
     end
     return s
   elseif node_name == 'ERROR' then
-    if ignore_parse_error(trimmed, opt.fname) then
+    if ignore_parse_error(trimmed) then
       return text
     end
 
@@ -843,8 +842,14 @@ end
 local function gen_css(fname)
   local css = [[
     :root {
-      --code-color: #008B8B;
-      --tag-color: gray;
+      --code-color: #004b4b;
+      --tag-color: #095943;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --code-color: #00c243;
+        --tag-color: #00b7b7;
+      }
     }
     @media (min-width: 40em) {
       .toc {
@@ -861,11 +866,6 @@ local function gen_css(fname)
       .golden-grid {
         /* Disable grid for narrow viewport (mobile phone). */
         display: block;
-      }
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --code-color: cyan;
       }
     }
     .toc {
@@ -887,7 +887,7 @@ local function gen_css(fname)
     }
     h1, h2, h3, h4, h5 {
       font-family: sans-serif;
-      border-bottom: 1px solid #41464bd6; /*rgba(0, 0, 0, .9);*/
+      border-bottom: 1px solid var(--tag-color); /*rgba(0, 0, 0, .9);*/
     }
     h3, h4, h5 {
       border-bottom-style: dashed;

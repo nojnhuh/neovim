@@ -298,7 +298,7 @@ local function start_watch(path)
       watched_paths[path].fsevent = start_watch(path, client_id)
     end
 
-    if stat.type == "directory" then
+    if not recursive_watch and stat.type == "directory" then
       for client_id, regs in pairs(registrations) do
         for reg_id, watchers in pairs(regs) do
           for _, watcher in ipairs(watchers) do

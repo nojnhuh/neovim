@@ -468,7 +468,7 @@ Example: create a float with scratch buffer: >vim
 <
 
 ==============================================================================
-Extended marks                                  *api-extended-marks* *extmarks*
+Extended marks                       *api-extended-marks* *extmarks* *extmark*
 
 Extended marks (extmarks) represent buffer annotations that track text changes
 in the buffer. They can represent cursors, folds, misspelled words, anything
@@ -717,7 +717,7 @@ nvim_del_var({name})                                          *nvim_del_var()*
     Parameters: ~
       • {name}  Variable name
 
-nvim_echo({chunks}, {history}, {opts})                           *nvim_echo()*
+nvim_echo({chunks}, {history}, {*opts})                          *nvim_echo()*
     Echo a message.
 
     Parameters: ~
@@ -725,7 +725,11 @@ nvim_echo({chunks}, {history}, {opts})                           *nvim_echo()*
                    chunk with specified highlight. `hl_group` element can be
                    omitted for no highlight.
       • {history}  if true, add to |message-history|.
-      • {opts}     Optional parameters. Reserved for future use.
+      • {opts}     Optional parameters.
+                   • verbose: Message was printed as a result of 'verbose'
+                     option if Nvim was invoked with -V3log_file, the message
+                     will be redirected to the log_file and surpressed from
+                     direct output.
 
 nvim_err_write({str})                                       *nvim_err_write()*
     Writes a message to the Vim error buffer. Does not append "\n", the
@@ -1129,7 +1133,7 @@ nvim_list_uis()                                              *nvim_list_uis()*
         • "width" Requested width of the UI
         • "rgb" true if the UI uses RGB colors (false implies |cterm-colors|)
         • "ext_..." Requested UI extensions, see |ui-option|
-        • "chan" Channel id of remote UI (not present for TUI)
+        • "chan" Channel id of remote UI or 0 for TUI
 
 nvim_list_wins()                                            *nvim_list_wins()*
     Gets the current list of window handles.
@@ -2485,7 +2489,7 @@ nvim_buf_add_highlight({buffer}, {ns_id}, {hl_group}, {line}, {col_start},
 
                                                   *nvim_buf_clear_namespace()*
 nvim_buf_clear_namespace({buffer}, {ns_id}, {line_start}, {line_end})
-    Clears namespaced objects (highlights, extmarks, virtual text) from a
+    Clears |namespace|d objects (highlights, |extmarks|, virtual text) from a
     region.
 
     Lines are 0-indexed. |api-indexing| To clear the namespace in the entire
@@ -2499,7 +2503,7 @@ nvim_buf_clear_namespace({buffer}, {ns_id}, {line_start}, {line_end})
                       clear to end of buffer.
 
 nvim_buf_del_extmark({buffer}, {ns_id}, {id})         *nvim_buf_del_extmark()*
-    Removes an extmark.
+    Removes an |extmark|.
 
     Parameters: ~
       • {buffer}  Buffer handle, or 0 for current buffer
@@ -2511,7 +2515,7 @@ nvim_buf_del_extmark({buffer}, {ns_id}, {id})         *nvim_buf_del_extmark()*
 
                                                 *nvim_buf_get_extmark_by_id()*
 nvim_buf_get_extmark_by_id({buffer}, {ns_id}, {id}, {opts})
-    Gets the position (0-indexed) of an extmark.
+    Gets the position (0-indexed) of an |extmark|.
 
     Parameters: ~
       • {buffer}  Buffer handle, or 0 for current buffer
@@ -2525,7 +2529,7 @@ nvim_buf_get_extmark_by_id({buffer}, {ns_id}, {id}, {opts})
 
                                                      *nvim_buf_get_extmarks()*
 nvim_buf_get_extmarks({buffer}, {ns_id}, {start}, {end}, {opts})
-    Gets extmarks in "traversal order" from a |charwise| region defined by
+    Gets |extmarks| in "traversal order" from a |charwise| region defined by
     buffer positions (inclusive, 0-indexed |api-indexing|).
 
     Region can be given as (row,col) tuples, or valid extmark ids (whose
@@ -2570,7 +2574,7 @@ nvim_buf_get_extmarks({buffer}, {ns_id}, {start}, {end}, {opts})
 
                                                       *nvim_buf_set_extmark()*
 nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {*opts})
-    Creates or updates an extmark.
+    Creates or updates an |extmark|.
 
     By default a new extmark is created when no id is passed in, but it is
     also possible to create a new mark by passing in a previously unused id or
@@ -2683,7 +2687,7 @@ nvim_buf_set_extmark({buffer}, {ns_id}, {line}, {col}, {*opts})
         Id of the created/updated extmark
 
 nvim_create_namespace({name})                        *nvim_create_namespace()*
-    Creates a new *namespace* or gets an existing one.
+    Creates a new namespace or gets an existing one.               *namespace*
 
     Namespaces are used for buffer highlights and virtual text, see
     |nvim_buf_add_highlight()| and |nvim_buf_set_extmark()|.
@@ -2699,19 +2703,19 @@ nvim_create_namespace({name})                        *nvim_create_namespace()*
         Namespace id
 
 nvim_get_namespaces()                                  *nvim_get_namespaces()*
-    Gets existing, non-anonymous namespaces.
+    Gets existing, non-anonymous |namespace|s.
 
     Return: ~
         dict that maps from names to namespace ids.
 
                                               *nvim_set_decoration_provider()*
 nvim_set_decoration_provider({ns_id}, {*opts})
-    Set or change decoration provider for a namespace
+    Set or change decoration provider for a |namespace|
 
     This is a very general purpose interface for having lua callbacks being
     triggered during the redraw code.
 
-    The expected usage is to set extmarks for the currently redrawn buffer.
+    The expected usage is to set |extmarks| for the currently redrawn buffer.
     |nvim_buf_set_extmark()| can be called to add marks on a per-window or
     per-lines basis. Use the `ephemeral` key to only use the mark for the
     current screen redraw (the callback will be called again for the next
@@ -3228,89 +3232,54 @@ nvim_create_augroup({name}, {*opts})                   *nvim_create_augroup()*
         |autocmd-groups|
 
 nvim_create_autocmd({event}, {*opts})                  *nvim_create_autocmd()*
-    Create an |autocommand|
+    Creates an |autocommand| event handler, defined by `callback` (Lua function or Vimscript function name string) or `command` (Ex command string).
 
-    The API allows for two (mutually exclusive) types of actions to be
-    executed when the autocommand triggers: a callback function (Lua or
-    Vimscript), or a command (like regular autocommands).
-
-    Example using callback: >lua
-        -- Lua function
-        local myluafun = function() print("This buffer enters") end
-
-        -- Vimscript function name (as a string)
-        local myvimfun = "g:MyVimFunction"
-
+    Example using Lua callback: >lua
         vim.api.nvim_create_autocmd({"BufEnter", "BufWinEnter"}, {
           pattern = {"*.c", "*.h"},
-          callback = myluafun,  -- Or myvimfun
+          callback = function(ev)
+            print(string.format('event fired: s', vim.inspect(ev)))
+          end
         })
 <
 
-    Lua functions receive a table with information about the autocmd event as
-    an argument. To use a function which itself accepts another (optional)
-    parameter, wrap the function in a lambda: >lua
-        -- Lua function with an optional parameter.
-        -- The autocmd callback would pass a table as argument but this
-        -- function expects number|nil
-        local myluafun = function(bufnr) bufnr = bufnr or vim.api.nvim_get_current_buf() end
-
-        vim.api.nvim_create_autocmd({"BufEnter", "BufWinEnter"}, {
-          pattern = {"*.c", "*.h"},
-          callback = function() myluafun() end,
-        })
-<
-
-    Example using command: >lua
+    Example using an Ex command as the handler: >lua
         vim.api.nvim_create_autocmd({"BufEnter", "BufWinEnter"}, {
           pattern = {"*.c", "*.h"},
           command = "echo 'Entering a C or C++ file'",
         })
 <
 
-    Example values for pattern: >lua
-      pattern = "*.py"
-      pattern = { "*.py", "*.pyi" }
-<
-
-    Note: The `pattern` is passed to callbacks and commands as a literal string; environment
-    variables like `$HOME` and `~` are not automatically expanded as they are by |:autocmd|. Instead,
-    |expand()| such variables explicitly: >lua
+    Note: `pattern` is NOT automatically expanded (unlike with |:autocmd|), thus names like
+    "$HOME" and "~" must be expanded explicitly: >lua
       pattern = vim.fn.expand("~") .. "/some/path/*.py"
 <
 
-    Example values for event: >lua
-      event = "BufWritePre"
-      event = {"CursorHold", "BufWritePre", "BufWritePost"}
-<
-
     Parameters: ~
-      • {event}  (string|array) The event or events to register this
-                 autocommand
-      • {opts}   Dictionary of autocommand options:
-                 • group (string|integer) optional: the autocommand group name
-                   or id to match against.
-                 • pattern (string|array) optional: pattern or patterns to
-                   match literally against |autocmd-pattern|.
-                 • buffer (integer) optional: buffer number for buffer local
+      • {event}  (string|array) Event(s) that will trigger the handler
+                 (`callback` or `command`).
+      • {opts}   Options dict:
+                 • group (string|integer) optional: autocommand group name or
+                   id to match against.
+                 • pattern (string|array) optional: pattern(s) to match
+                   literally |autocmd-pattern|.
+                 • buffer (integer) optional: buffer number for buffer-local
                    autocommands |autocmd-buflocal|. Cannot be used with
                    {pattern}.
-                 • desc (string) optional: description of the autocommand.
-                 • callback (function|string) optional: if a string, the name
-                   of a Vimscript function to call when this autocommand is
-                   triggered. Otherwise, a Lua function which is called when
-                   this autocommand is triggered. Cannot be used with
-                   {command}. Lua callbacks can return true to delete the
-                   autocommand; in addition, they accept a single table
-                   argument with the following keys:
-                   • id: (number) the autocommand id
-                   • event: (string) the name of the event that triggered the
-                     autocommand |autocmd-events|
-                   • group: (number|nil) the autocommand group id, if it
-                     exists
-                   • match: (string) the expanded value of |<amatch>|
-                   • buf: (number) the expanded value of |<abuf>|
-                   • file: (string) the expanded value of |<afile>|
+                 • desc (string) optional: description (for documentation and
+                   troubleshooting).
+                 • callback (function|string) optional: Lua function (or
+                   Vimscript function name, if string) called when the
+                   event(s) is triggered. Lua callback can return true to
+                   delete the autocommand, and receives a table argument with
+                   these keys:
+                   • id: (number) autocommand id
+                   • event: (string) name of the triggered event
+                     |autocmd-events|
+                   • group: (number|nil) autocommand group id, if any
+                   • match: (string) expanded value of |<amatch>|
+                   • buf: (number) expanded value of |<abuf>|
+                   • file: (string) expanded value of |<afile>|
                    • data: (any) arbitrary data passed to
                      |nvim_exec_autocmds()|
 
@@ -3322,7 +3291,7 @@ nvim_create_autocmd({event}, {*opts})                  *nvim_create_autocmd()*
                    autocommands |autocmd-nested|.
 
     Return: ~
-        Integer id of the created autocommand.
+        Autocommand id (number)
 
     See also: ~
         |autocommand|

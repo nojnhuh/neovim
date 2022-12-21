@@ -2959,6 +2959,7 @@ func Test_cwindow_highlight()
   call writefile(lines, 'XtestCwindow')
   let buf = RunVimInTerminal('-S XtestCwindow', #{rows: 12})
   call VerifyScreenDump(buf, 'Test_quickfix_cwindow_1', {})
+
   call term_sendkeys(buf, ":cnext\<CR>")
   call VerifyScreenDump(buf, 'Test_quickfix_cwindow_2', {})
 
@@ -6088,7 +6089,7 @@ func Test_lopen_bwipe_all()
     qall!
   END
   call writefile(lines, 'Xscript')
-  if RunVim([], [], '--clean -n -S Xscript')
+  if RunVim([], [], '-u NONE -n -X -Z -e -m -s -S Xscript')
     call assert_equal(['done'], readfile('Xresult'))
   endif
 

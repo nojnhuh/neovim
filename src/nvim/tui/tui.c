@@ -15,6 +15,8 @@
 #include "auto/config.h"
 #include "klib/kvec.h"
 #include "nvim/api/private/defs.h"
+#include "nvim/api/private/helpers.h"
+#include "nvim/api/vim.h"
 #include "nvim/ascii.h"
 #include "nvim/event/defs.h"
 #include "nvim/event/loop.h"
@@ -25,10 +27,12 @@
 #include "nvim/grid_defs.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/log.h"
+#include "nvim/macros.h"
 #include "nvim/main.h"
 #include "nvim/mbyte.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
+#include "nvim/msgpack_rpc/channel.h"
 #include "nvim/option.h"
 #include "nvim/os/input.h"
 #include "nvim/os/os.h"
@@ -65,8 +69,21 @@
   do { \
     (var) = unibi_var_from_num((num)); \
   } while (0)
+# define UNIBI_SET_STR_VAR(var, str) \
+  do { \
+    (var) = unibi_var_from_str((str)); \
+  } while (0)
 #else
-# define UNIBI_SET_NUM_VAR(var, num) (var).i = (num);
+# define UNIBI_SET_NUM_VAR(var, num) \
+  do { \
+    (var).p = NULL; \
+    (var).i = (num); \
+  } while (0)
+# define UNIBI_SET_STR_VAR(var, str) \
+  do { \
+    (var).i = INT_MIN; \
+    (var).p = str; \
+  } while (0)
 #endif
 
 typedef struct {
@@ -85,6 +102,7 @@ struct TUIData {
   TermInput input;
   uv_loop_t write_loop;
   unibi_term *ut;
+  char *term;  // value of $TERM
   union {
     uv_tty_t tty;
     uv_pipe_t pipe;
@@ -108,6 +126,7 @@ struct TUIData {
   bool mouse_move_enabled;
   bool busy, is_invisible, want_invisible;
   bool cork, overflow;
+  bool set_cursor_color_as_str;
   bool cursor_color_changed;
   bool is_starting;
   FILE *screenshot;
@@ -118,6 +137,7 @@ struct TUIData {
   bool default_attr;
   bool can_clear_attr;
   ModeShape showing_mode;
+  Integer verbose;
   struct {
     int enable_mouse, disable_mouse;
     int enable_mouse_move, disable_mouse_move;
@@ -236,6 +256,7 @@ static void terminfo_start(UI *ui)
   data->busy = false;
   data->cork = false;
   data->overflow = false;
+  data->set_cursor_color_as_str = false;
   data->cursor_color_changed = false;
   data->showing_mode = SHAPE_IDX_N;
   data->unibi_ext.enable_mouse = -1;
@@ -280,6 +301,7 @@ static void terminfo_start(UI *ui)
     os_env_var_unlock();
     if (data->ut) {
       termname = xstrdup(term);
+      data->term = xstrdup(term);
     }
   }
   if (!data->ut) {
@@ -494,9 +516,6 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   // Allow main thread to continue, we are ready to handle UI callbacks.
   CONTINUE(bridge);
 
-  loop_schedule_deferred(&main_loop,
-                         event_create(show_termcap_event, 1, data->ut));
-
   // "Active" loop: first ~100 ms of startup.
   for (size_t ms = 0; ms < 100 && !tui_is_stopped(ui);) {
     ms += (loop_poll_events(&tui_loop, 20) ? 20 : 1);
@@ -518,6 +537,7 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   kv_destroy(data->invalid_regions);
   kv_destroy(data->attrs);
   xfree(data->space_buf);
+  xfree(data->term);
   xfree(data);
 }
 
@@ -1180,7 +1200,13 @@ static void tui_set_mode(UI *ui, ModeShape mode)
       // Hopefully the user's default cursor color is inverse.
       unibi_out_ext(ui, data->unibi_ext.reset_cursor_color);
     } else {
-      UNIBI_SET_NUM_VAR(data->params[0], aep.rgb_bg_color);
+      if (data->set_cursor_color_as_str) {
+        char hexbuf[8];
+        snprintf(hexbuf, 7 + 1, "#%06x", aep.rgb_bg_color);
+        UNIBI_SET_STR_VAR(data->params[0], hexbuf);
+      } else {
+        UNIBI_SET_NUM_VAR(data->params[0], aep.rgb_bg_color);
+      }
       unibi_out_ext(ui, data->unibi_ext.set_cursor_color);
       data->cursor_color_changed = true;
     }
@@ -1225,6 +1251,11 @@ static void tui_mode_change(UI *ui, String mode, Integer mode_idx)
   }
 #endif
   tui_set_mode(ui, (ModeShape)mode_idx);
+  if (data->is_starting) {
+    if (data->verbose >= 3) {
+      show_verbose_terminfo(data);
+    }
+  }
   data->is_starting = false;  // mode entered, no longer starting
   data->showing_mode = (ModeShape)mode_idx;
 }
@@ -1369,21 +1400,53 @@ static void tui_flush(UI *ui)
 }
 
 /// Dumps termcap info to the messages area, if 'verbose' >= 3.
-static void show_termcap_event(void **argv)
+static void show_verbose_terminfo(TUIData *data)
 {
-  if (p_verbose < 3) {
-    return;
-  }
-  const unibi_term *const ut = argv[0];
+  const unibi_term *const ut = data->ut;
   if (!ut) {
     abort();
   }
-  verbose_enter();
-  // XXX: (future) if unibi_term is modified (e.g. after a terminal
-  // query-response) this is a race condition.
-  terminfo_info_msg(ut);
-  verbose_leave();
-  verbose_stop();  // flush now
+
+  Array chunks = ARRAY_DICT_INIT;
+  Array title = ARRAY_DICT_INIT;
+  ADD(title, STRING_OBJ(cstr_to_string("\n\n--- Terminal info --- {{{\n")));
+  ADD(title, STRING_OBJ(cstr_to_string("Title")));
+  ADD(chunks, ARRAY_OBJ(title));
+  Array info = ARRAY_DICT_INIT;
+  String str = terminfo_info_msg(ut, data->term);
+  ADD(info, STRING_OBJ(str));
+  ADD(chunks, ARRAY_OBJ(info));
+  Array end_fold = ARRAY_DICT_INIT;
+  ADD(end_fold, STRING_OBJ(cstr_to_string("}}}\n")));
+  ADD(end_fold, STRING_OBJ(cstr_to_string("Title")));
+  ADD(chunks, ARRAY_OBJ(end_fold));
+
+  if (ui_client_channel_id) {
+    Array args = ARRAY_DICT_INIT;
+    ADD(args, ARRAY_OBJ(chunks));
+    ADD(args, BOOLEAN_OBJ(true));  // history
+    Dictionary opts = ARRAY_DICT_INIT;
+    PUT(opts, "verbose", BOOLEAN_OBJ(true));
+    ADD(args, DICTIONARY_OBJ(opts));
+    rpc_send_event(ui_client_channel_id, "nvim_echo", args);
+  } else {
+    loop_schedule_deferred(&main_loop, event_create(verbose_terminfo_event, 2,
+                                                    chunks.items, chunks.size));
+  }
+}
+
+static void verbose_terminfo_event(void **argv)
+{
+  Array chunks = { .items = argv[0], .size = (size_t)argv[1] };
+  Dict(echo_opts) opts = { .verbose = BOOLEAN_OBJ(true) };
+  Error err = ERROR_INIT;
+  nvim_echo(chunks, true, &opts, &err);
+  api_free_array(chunks);
+  if (ERROR_SET(&err)) {
+    fprintf(stderr, "TUI bought the farm: %s\n", err.msg);
+    exit(1);
+  }
+  api_clear_error(&err);
 }
 
 #ifdef UNIX
@@ -1488,6 +1551,8 @@ static void tui_option_set(UI *ui, String name, Object value)
     data->input.ttimeout = value.data.boolean;
   } else if (strequal(name.data, "ttimeoutlen")) {
     data->input.ttimeoutlen = (long)value.data.integer;
+  } else if (strequal(name.data, "verbose")) {
+    data->verbose = value.data.integer;
   }
 }
 
@@ -2148,10 +2213,20 @@ static void augment_terminfo(TUIData *data, const char *term, long vte_version, 
                && (vte_version == 0 || vte_version >= 3900)) {
       // Supported in urxvt, newer VTE.
       data->unibi_ext.set_cursor_color = (int)unibi_add_ext_str(ut, "ext.set_cursor_color",
-                                                                "\033]12;#%p1%06x\007");
+                                                                "\033]12;%p1%s\007");
     }
   }
   if (-1 != data->unibi_ext.set_cursor_color) {
+    // Some terminals supporting cursor color changing specify their Cs
+    // capability to take a string parameter. Others take a numeric parameter.
+    // If and only if the format string contains `%s` we assume a string
+    // parameter. #20628
+    const char *set_cursor_color =
+      unibi_get_ext_str(ut, (unsigned)data->unibi_ext.set_cursor_color);
+    if (set_cursor_color) {
+      data->set_cursor_color_as_str = strstr(set_cursor_color, "%s") != NULL;
+    }
+
     data->unibi_ext.reset_cursor_color = unibi_find_ext_str(ut, "Cr");
     if (-1 == data->unibi_ext.reset_cursor_color) {
       data->unibi_ext.reset_cursor_color = (int)unibi_add_ext_str(ut, "ext.reset_cursor_color",
