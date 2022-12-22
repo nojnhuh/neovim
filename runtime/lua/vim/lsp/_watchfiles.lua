@@ -173,7 +173,6 @@ local path_sep
 ---@param args ... The path elements. The first element must be absolute.
 ---@return string The joined path.
 local function filepath_join(...)
-  local dir = ...
   return table.concat({ ... }, path_sep)
 end
 
@@ -266,11 +265,11 @@ local function start_watch(path)
 
     local change_type = events.change and protocol.FileChangeType.Changed or 0
     if events.rename then
-      local _, err, errname = uv.fs_stat(fullpath)
-      if errname == 'ENOENT' then
+      local _, staterr, staterrname = uv.fs_stat(fullpath)
+      if staterrname == 'ENOENT' then
         change_type = protocol.FileChangeType.Deleted
       else
-        assert(not err, err)
+        assert(not staterr, staterr)
         change_type = protocol.FileChangeType.Created
       end
     end
@@ -281,29 +280,36 @@ local function start_watch(path)
       end
     end
 
-    local stat, err, errname = uv.fs_stat(path)
-    if errname == 'ENOENT' then
-      local _, err = fsevent:stop()
-      assert(not err, err)
+    local stat, staterr, staterrname = uv.fs_stat(path)
+    if staterrname == 'ENOENT' then
+      local _, stoperr = fsevent:stop()
+      assert(not stoperr, stoperr)
       fsevent:close()
       watched_paths[path] = nil
       return
     end
-    assert(not err, err)
+    assert(not staterr, staterr)
     if stat.ino ~= watched_paths[path].inode then
       watched_paths[path].inode = stat.ino
-      local _, err = fsevent:stop()
-      assert(not err, err)
+      local _, stoperr = fsevent:stop()
+      assert(not stoperr, stoperr)
       fsevent:close()
-      watched_paths[path].fsevent = start_watch(path, client_id)
+      watched_paths[path].fsevent = start_watch(path)
     end
 
-    if not recursive_watch and stat.type == "directory" then
+    if not recursive_watch and stat.type == 'directory' then
       for client_id, regs in pairs(registrations) do
         for reg_id, watchers in pairs(regs) do
           for _, watcher in ipairs(watchers) do
             if vim.startswith(path .. path_sep, watcher.base_dir .. path_sep) then
-              fsevent_ensure_recursive(path, watcher.pattern, watcher.kind, client_id, reg_id, stat.type)
+              fsevent_ensure_recursive(
+                path,
+                watcher.pattern,
+                watcher.kind,
+                client_id,
+                reg_id,
+                stat.type
+              )
             end
           end
         end
@@ -322,7 +328,7 @@ end
 ---@param client_id number The LSP client's ID.
 ---@param reg_id string The ID used to register the request.
 function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filetype)
-  if filetype == "directory" or not watch_each_file or M._match(pattern, path) then
+  if filetype == 'directory' or not watch_each_file or M._match(pattern, path) then
     local new_path = false
     if not watched_paths[path] then
       new_path = true
@@ -330,7 +336,7 @@ function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filety
       local stat, fserr = uv.fs_stat(path)
       assert(not fserr, fserr)
       watched_paths[path] = {
-        fsevent = start_watch(path, client_id),
+        fsevent = start_watch(path),
         inode = stat.ino,
         callbacks = {},
       }
@@ -338,11 +344,11 @@ function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filety
 
     watched_paths[path].callbacks[client_id] = watched_paths[path].callbacks[client_id] or {}
     watched_paths[path].callbacks[client_id][reg_id] = watched_paths[path].callbacks[client_id][reg_id]
-    or {}
+      or {}
     watched_paths[path].callbacks[client_id][reg_id].callback = watched_paths[path].callbacks[client_id][reg_id].callback
-    or get_callback(path, client_id, reg_id)
+      or get_callback(path, client_id, reg_id)
     watched_paths[path].callbacks[client_id][reg_id].filters = watched_paths[path].callbacks[client_id][reg_id].filters
-    or {}
+      or {}
     local filter = { pattern = pattern, kind = kind }
     local filter_exists = false
     for _, f in ipairs(watched_paths[path].callbacks[client_id][reg_id].filters) do
@@ -352,14 +358,14 @@ function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filety
       end
     end
     if not filter_exists then
-      table.insert(
-        watched_paths[path].callbacks[client_id][reg_id].filters,
-        filter
-      )
+      table.insert(watched_paths[path].callbacks[client_id][reg_id].filters, filter)
     end
 
     if new_path then
-      watched_paths[path].callbacks[client_id][reg_id].callback(path, protocol.FileChangeType.Created)
+      watched_paths[path].callbacks[client_id][reg_id].callback(
+        path,
+        protocol.FileChangeType.Created
+      )
     end
   end
 
@@ -368,7 +374,7 @@ function fsevent_ensure_recursive(path, pattern, kind, client_id, reg_id, filety
   end
 
   local scan, err, errname = uv.fs_scandir(path)
-  if errname == "ENOTDIR" or errname == "ENOENT" then
+  if errname == 'ENOTDIR' or errname == 'ENOENT' then
     return
   end
   assert(not err, err)
@@ -402,7 +408,14 @@ local function ensure_registrations()
   for client_id, regs in pairs(registrations) do
     for reg_id, watchers in pairs(regs) do
       for _, watcher in ipairs(watchers) do
-        fsevent_ensure_recursive(watcher.base_dir, watcher.pattern, watcher.kind, client_id, reg_id, "directory")
+        fsevent_ensure_recursive(
+          watcher.base_dir,
+          watcher.pattern,
+          watcher.kind,
+          client_id,
+          reg_id,
+          'directory'
+        )
       end
     end
   end
