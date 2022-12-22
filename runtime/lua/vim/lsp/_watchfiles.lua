@@ -224,17 +224,14 @@ local function get_callback(watch_path, client_id, reg_id)
       change_cache[client_id][change.uri] = change.type
     end
     if not queue_timers[client_id] then
-      local t = uv.new_timer()
-      t:start(100, 0, function()
-        t:close()
+      queue_timers[client_id] = vim.defer_fn(function()
         vim.lsp.get_client_by_id(client_id).notify('workspace/didChangeWatchedFiles', {
           changes = change_queue[client_id],
         })
         change_queue[client_id] = nil
         change_cache[client_id] = nil
         queue_timers[client_id] = nil
-      end)
-      queue_timers[client_id] = t
+      end, 100)
     end
   end
 end
