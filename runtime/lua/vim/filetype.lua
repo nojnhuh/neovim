@@ -419,6 +419,7 @@ local extension = {
   fs = function(path, bufnr)
     return require('vim.filetype.detect').fs(bufnr)
   end,
+  fsh = 'fsh',
   fsi = 'fsharp',
   fsx = 'fsharp',
   fusion = 'fusion',
@@ -556,6 +557,7 @@ local extension = {
   jov = 'jovial',
   jovial = 'jovial',
   properties = 'jproperties',
+  jq = 'jq',
   slnf = 'json',
   json = 'json',
   jsonp = 'json',
@@ -1530,6 +1532,7 @@ local filename = {
   ['.latexmkrc'] = 'perl',
   ['pf.conf'] = 'pf',
   ['main.cf'] = 'pfmain',
+  ['main.cf.proto'] = 'pfmain',
   pinerc = 'pine',
   ['.pinercex'] = 'pine',
   ['.pinerc'] = 'pine',

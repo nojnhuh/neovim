@@ -54,9 +54,9 @@
 #  undef HAVE_SYS_UIO_H
 # endif
 #endif
+#cmakedefine HAVE_DIRFD
+#cmakedefine HAVE_FLOCK
 #cmakedefine HAVE_FORKPTY
-
-#cmakedefine FEAT_TUI
 
 #ifndef UNIT_TESTING
 #cmakedefine LOG_LIST_ACTIONS

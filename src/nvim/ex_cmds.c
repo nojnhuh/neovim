@@ -1367,12 +1367,13 @@ char *make_filter_cmd(char *cmd, char *itmp, char *otmp)
 {
   bool is_fish_shell =
 #if defined(UNIX)
-    STRNCMP(invocation_path_tail((char_u *)p_sh, NULL), "fish", 4) == 0;
+    strncmp((char *)invocation_path_tail((char_u *)p_sh, NULL), "fish", 4) == 0;
 #else
     false;
 #endif
-  bool is_pwsh = STRNCMP(invocation_path_tail((char_u *)p_sh, NULL), "pwsh", 4) == 0
-                 || STRNCMP(invocation_path_tail((char_u *)p_sh, NULL), "powershell", 10) == 0;
+  bool is_pwsh = strncmp((char *)invocation_path_tail((char_u *)p_sh, NULL), "pwsh", 4) == 0
+                 || strncmp((char *)invocation_path_tail((char_u *)p_sh, NULL), "powershell",
+                            10) == 0;
 
   size_t len = strlen(cmd) + 1;  // At least enough space for cmd + NULL.
 
@@ -1617,12 +1618,12 @@ static int check_writable(const char *fname)
 }
 #endif
 
-/// write current buffer to file 'eap->arg'
-/// if 'eap->append' is true, append to the file
+/// Write current buffer to file "eap->arg".
+/// If "eap->append" is true, append to the file.
 ///
-/// if *eap->arg == NUL write to current file
+/// If "*eap->arg == NUL" write to current file.
 ///
-/// @return  FAIL for failure, OK otherwise
+/// @return  FAIL for failure, OK otherwise.
 int do_write(exarg_T *eap)
 {
   int other;
@@ -3442,8 +3443,8 @@ static int do_sub(exarg_T *eap, proftime_T timeout, long cmdpreview_ns, handle_T
     return 0;
   }
 
-  if (search_regcomp((char_u *)pat, RE_SUBST, which_pat, (cmdpreview ? 0 : SEARCH_HIS),
-                     &regmatch) == FAIL) {
+  if (search_regcomp((char_u *)pat, NULL, RE_SUBST, which_pat,
+                     (cmdpreview ? 0 : SEARCH_HIS), &regmatch) == FAIL) {
     if (subflags.do_error) {
       emsg(_(e_invcmd));
     }
@@ -4397,7 +4398,9 @@ void ex_global(exarg_T *eap)
     }
   }
 
-  if (search_regcomp((char_u *)pat, RE_BOTH, which_pat, SEARCH_HIS, &regmatch) == FAIL) {
+  char_u *used_pat;
+  if (search_regcomp((char_u *)pat, &used_pat, RE_BOTH, which_pat,
+                     SEARCH_HIS, &regmatch) == FAIL) {
     emsg(_(e_invcmd));
     return;
   }
@@ -4428,9 +4431,9 @@ void ex_global(exarg_T *eap)
       msg(_(e_interr));
     } else if (ndone == 0) {
       if (type == 'v') {
-        smsg(_("Pattern found in every line: %s"), pat);
+        smsg(_("Pattern found in every line: %s"), used_pat);
       } else {
-        smsg(_("Pattern not found: %s"), pat);
+        smsg(_("Pattern not found: %s"), used_pat);
       }
     } else {
       global_exe(cmd);
@@ -4740,45 +4743,46 @@ void ex_oldfiles(exarg_T *eap)
 
   if (l == NULL) {
     msg(_("No old files"));
-  } else {
-    msg_start();
-    msg_scroll = true;
-    TV_LIST_ITER(l, li, {
-      if (got_int) {
-        break;
-      }
-      nr++;
-      const char *fname = tv_get_string(TV_LIST_ITEM_TV(li));
-      if (!message_filtered((char *)fname)) {
-        msg_outnum(nr);
-        msg_puts(": ");
-        msg_outtrans((char *)tv_get_string(TV_LIST_ITEM_TV(li)));
-        msg_clr_eos();
-        msg_putchar('\n');
-        os_breakcheck();
-      }
-    });
+    return;
+  }
 
-    // Assume "got_int" was set to truncate the listing.
-    got_int = false;
+  msg_start();
+  msg_scroll = true;
+  TV_LIST_ITER(l, li, {
+    if (got_int) {
+      break;
+    }
+    nr++;
+    const char *fname = tv_get_string(TV_LIST_ITEM_TV(li));
+    if (!message_filtered((char *)fname)) {
+      msg_outnum(nr);
+      msg_puts(": ");
+      msg_outtrans((char *)tv_get_string(TV_LIST_ITEM_TV(li)));
+      msg_clr_eos();
+      msg_putchar('\n');
+      os_breakcheck();
+    }
+  });
 
-    // File selection prompt on ":browse oldfiles"
-    if (cmdmod.cmod_flags & CMOD_BROWSE) {
-      quit_more = false;
-      nr = prompt_for_number(false);
-      msg_starthere();
-      if (nr > 0 && nr <= tv_list_len(l)) {
-        const char *const p = tv_list_find_str(l, (int)nr - 1);
-        if (p == NULL) {
-          return;
-        }
-        char *const s = expand_env_save((char *)p);
-        eap->arg = s;
-        eap->cmdidx = CMD_edit;
-        cmdmod.cmod_flags &= ~CMOD_BROWSE;
-        do_exedit(eap, NULL);
-        xfree(s);
+  // Assume "got_int" was set to truncate the listing.
+  got_int = false;
+
+  // File selection prompt on ":browse oldfiles"
+  if (cmdmod.cmod_flags & CMOD_BROWSE) {
+    quit_more = false;
+    nr = prompt_for_number(false);
+    msg_starthere();
+    if (nr > 0 && nr <= tv_list_len(l)) {
+      const char *const p = tv_list_find_str(l, (int)nr - 1);
+      if (p == NULL) {
+        return;
       }
+      char *const s = expand_env_save((char *)p);
+      eap->arg = s;
+      eap->cmdidx = CMD_edit;
+      cmdmod.cmod_flags &= ~CMOD_BROWSE;
+      do_exedit(eap, NULL);
+      xfree(s);
     }
   }
 }
