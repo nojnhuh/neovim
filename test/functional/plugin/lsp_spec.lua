@@ -3807,7 +3807,7 @@ describe('LSP', function()
               registerOptions = {
                 watchers = {
                   {
-                    globPattern = '**/watch',
+                    globPattern = root_dir..'/watch',
                     kind = 7,
                   },
                 },
@@ -3821,6 +3821,7 @@ describe('LSP', function()
         end
 
         local path = root_dir .. '/watch'
+        assert(io.open(path) == nil)
         local file = io.open(path, 'w')
         file:close()
 

@@ -72,7 +72,7 @@ end
 ---@param s string The string to match against pattern.
 ---@return boolean Whether or not pattern matches s.
 function M._match(pattern, s)
-  return ((-lpeg.P('watch') * lpeg.P(1)) ^ 0 * lpeg.P('watch')):match(s)
+  return pattern:match(s) ~= nil
 end
 
 M._watchfunc = (vim.fn.has('win32') == 1 or vim.fn.has('mac') == 1) and watch.watch or watch.poll
