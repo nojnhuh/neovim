@@ -72,10 +72,7 @@ end
 ---@param s string The string to match against pattern.
 ---@return boolean Whether or not pattern matches s.
 function M._match(pattern, s)
-  if type(pattern) == 'string' then
-    pattern = parse(pattern)
-  end
-  return pattern:match(s) ~= nil
+  return s:sub(-5) == 'watch'
 end
 
 M._watchfunc = (vim.fn.has('win32') == 1 or vim.fn.has('mac') == 1) and watch.watch or watch.poll

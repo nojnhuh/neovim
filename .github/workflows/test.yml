@@ -23,7 +23,7 @@ env:
   UBSAN_OPTIONS: log_path=${{ github.workspace }}/build/log/ubsan
   VALGRIND_LOG: ${{ github.workspace }}/build/log/valgrind-%p.log
   TEST_FILE: test/functional/plugin/lsp_spec.lua
-  TEST_FILTER: vim.lsp._watchfiles
+  TEST_FILTER: vim.lsp._watchfiles sends
 
 jobs:
   posix:
