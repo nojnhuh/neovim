@@ -72,6 +72,9 @@ end
 ---@param s string The string to match against pattern.
 ---@return boolean Whether or not pattern matches s.
 function M._match(pattern, s)
+  if type(pattern) == 'string' then
+    pattern = parse(pattern)
+  end
   return pattern:match(s) ~= nil
 end
 

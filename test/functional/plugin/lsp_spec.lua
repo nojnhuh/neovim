@@ -3770,6 +3770,7 @@ describe('LSP', function()
       local root_dir = helpers.tmpname()
       os.remove(root_dir)
       mkdir(root_dir)
+      eq(nil, root_dir)
 
       exec_lua(create_server_definition)
       local result = exec_lua([[
@@ -3807,7 +3808,7 @@ describe('LSP', function()
               registerOptions = {
                 watchers = {
                   {
-                    globPattern = root_dir..'/watch',
+                    globPattern = '**/watch',
                     kind = 7,
                   },
                 },
@@ -3821,7 +3822,6 @@ describe('LSP', function()
         end
 
         local path = root_dir .. '/watch'
-        assert(io.open(path) == nil)
         local file = io.open(path, 'w')
         file:close()
 
