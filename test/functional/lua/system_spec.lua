@@ -5,7 +5,13 @@ local eq = helpers.eq
 
 local function system_sync(cmd, opts)
   return exec_lua([[
-    return vim.system(...):wait()
+    local cmd = vim.system(...)
+    local ret = cmd:wait()
+    local done, err = vim.wait(500, function()
+      return vim.uv.kill(cmd.pid, 0) ~= 0
+    end, 50)
+    assert(done, "spawned process is not gone. vim.wait returned ".. tostring(err))
+    return ret
   ]], cmd, opts)
 end
 
@@ -13,10 +19,10 @@ local function system_async(cmd, opts)
   exec_lua([[
     local cmd, opts = ...
     _G.done = false
-    vim.system(cmd, opts, function(obj)
+    _G.pid = vim.system(cmd, opts, function(obj)
       _G.done = true
       _G.ret = obj
-    end)
+    end).pid
   ]], cmd, opts)
 
   while true do
@@ -25,7 +31,13 @@ local function system_async(cmd, opts)
     end
   end
 
-  return exec_lua[[return _G.ret]]
+  return exec_lua[[
+    local done, err = vim.wait(500, function()
+      return vim.uv.kill(_G.pid, 0) ~= 0
+    end, 50)
+    assert(done, "spawned process is not gone. vim.wait returned ".. tostring(err))
+    return _G.ret
+  ]]
 end
 
 describe('vim.system', function()
